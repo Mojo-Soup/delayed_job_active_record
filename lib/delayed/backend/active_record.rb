@@ -43,7 +43,7 @@ module Delayed
         def self.reserve(worker, max_run_time = Worker.max_run_time) # rubocop:disable CyclomaticComplexity
 
           # Get a process ID
-          @@process_id ||= "#{self.get_local_ip_address}/#{Process.pid}"
+          @@process_id ||= self.get_local_ip_address
 
           # handle the urgent queue, then any expired ones
           [false,true].each do |expired|
@@ -52,7 +52,7 @@ module Delayed
               job = reserve_with_scope(priority_scope, worker, db_time_now)
               return job if job
             end
-          end
+          end if Worker.priority_queues.any?
 
           # scope to filter to records that are "ready to run"
           ready_scope = filter_scope(self.ready_to_run(worker.name, max_run_time))
