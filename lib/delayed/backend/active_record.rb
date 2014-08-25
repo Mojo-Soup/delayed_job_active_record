@@ -41,16 +41,41 @@ module Delayed
         end
 
         def self.reserve(worker, max_run_time = Worker.max_run_time) # rubocop:disable CyclomaticComplexity
-          # scope to filter to records that are "ready to run"
-          ready_scope = ready_to_run(worker.name, max_run_time)
 
+          # Get a process ID
+          @@process_id ||= "#{self.get_local_ip_address}/#{Process.pid}"
+
+          # handle the urgent queue, then any expired ones
+          [false,true].each do |expired|
+            priority_scope = self.urgent_to_run_scope(self.ready_to_run(worker.name, max_run_time), @@process_id, expired)
+            if priority_scope.exists?
+              job = reserve_with_scope(priority_scope, worker, db_time_now)
+              return job if job
+            end
+          end
+
+          # scope to filter to records that are "ready to run"
+          ready_scope = filter_scope(self.ready_to_run(worker.name, max_run_time))
+
+          job = reserve_with_scope(ready_scope, worker, db_time_now)
+          job
+        end
+
+        def self.urgent_to_run_scope(ready_scope, allocated_work, expired=false)
+          ready_scope = ready_scope.where('priority >= ?', Worker.min_priority) if Worker.min_priority
+          ready_scope = ready_scope.where('priority <= ?', Worker.max_priority) if Worker.max_priority
+          ready_scope = ready_scope.where('urgent_worker = ?', allocated_work) unless expired
+          ready_scope = ready_scope.where('updated_at < ?', Worker.ignore_priority.ago) if expired
+          ready_scope = ready_scope.where(:queue => Worker.priority_queues) if Worker.priority_queues.any?
+          ready_scope = ready_scope.by_priority
+        end
+
+        def self.filter_scope(ready_scope)
           # scope to filter to the single next eligible job
           ready_scope = ready_scope.where('priority >= ?', Worker.min_priority) if Worker.min_priority
           ready_scope = ready_scope.where('priority <= ?', Worker.max_priority) if Worker.max_priority
           ready_scope = ready_scope.where(:queue => Worker.queues) if Worker.queues.any?
           ready_scope = ready_scope.by_priority
-
-          reserve_with_scope(ready_scope, worker, db_time_now)
         end
 
         def self.reserve_with_scope(ready_scope, worker, now)
