@@ -42,12 +42,12 @@ module Delayed
 
         def self.reserve(worker, max_run_time = Worker.max_run_time) # rubocop:disable CyclomaticComplexity
 
-          # Get a process ID
-          @@process_id ||= self.get_local_ip_address
+          # Get a IP address with process / thread ID
+          Thread.current[:ip_address] ||= self.get_local_ip_address
 
           # handle the urgent queue, then any expired ones
           [false,true].each do |expired|
-            priority_scope = self.urgent_to_run_scope(self.ready_to_run(worker.name, max_run_time), @@process_id, expired)
+            priority_scope = self.urgent_to_run_scope(self.ready_to_run(worker.name, max_run_time), Thread.current[:ip_address], expired)
             if priority_scope.exists?
               job = reserve_with_scope(priority_scope, worker, db_time_now)
               return job if job
@@ -57,8 +57,7 @@ module Delayed
           # scope to filter to records that are "ready to run"
           ready_scope = filter_scope(self.ready_to_run(worker.name, max_run_time))
 
-          job = reserve_with_scope(ready_scope, worker, db_time_now)
-          job
+          reserve_with_scope(ready_scope, worker, db_time_now)
         end
 
         def self.urgent_to_run_scope(ready_scope, allocated_work, expired=false)
